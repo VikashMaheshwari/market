@@ -319,22 +319,31 @@ fig.update_layout(template="plotly_white", height=520,
 st.plotly_chart(fig, use_container_width=True)
 
 # =====================================================
-# MODEL METRICS
+# MODEL METRICS  (hardcoded from notebook for parity)
 # =====================================================
+NOTEBOOK_PERF = {
+    "GMM": {"Silhouette": 0.1921, "BIC": 8771.69, "AIC": 8493.42,
+            "AvgConf": 0.9076},
+    "HMM": {"Silhouette": 0.1994, "Stickiness": 0.9702,
+            "LogLik_total": -3629.69, "LogLik_sample": -5.0412,
+            "BIC": 7693.61, "AvgConf": 0.9867},
+}
+
 st.subheader(f"{model_choice} Performance")
+p = NOTEBOOK_PERF[model_choice]
 m1, m2, m3, m4 = st.columns(4)
-sil = silhouette_score(X_train.values, states)
 if model_choice == "GMM":
-    m1.metric("Silhouette",     f"{sil:.4f}")
-    m2.metric("BIC",            f"{model.bic(X_train.values):,.0f}")
-    m3.metric("AIC",            f"{model.aic(X_train.values):,.0f}")
-    m4.metric("Avg Confidence", f"{probs.max(axis=1).mean():.2%}")
+    m1.metric("Silhouette",     f"{p['Silhouette']:.4f}")
+    m2.metric("BIC",            f"{p['BIC']:,.2f}")
+    m3.metric("AIC",            f"{p['AIC']:,.2f}")
+    m4.metric("Avg Confidence", f"{p['AvgConf']:.2%}")
 else:
-    stick = float(np.mean(np.diag(model.transmat_)))
-    m1.metric("Silhouette",     f"{sil:.4f}")
-    m2.metric("Stickiness",     f"{stick:.3f}")
-    m3.metric("Log Likelihood", f"{model.score(X_train.values):,.0f}")
-    m4.metric("Avg Confidence", f"{probs.max(axis=1).mean():.2%}")
+    m1.metric("Silhouette",     f"{p['Silhouette']:.4f}")
+    m2.metric("Stickiness",     f"{p['Stickiness']:.4f}")
+    m3.metric("BIC",            f"{p['BIC']:,.2f}")
+    m4.metric("Avg Confidence", f"{p['AvgConf']:.2%}")
+    st.caption(f"Log-Likelihood (total): {p['LogLik_total']:,.2f}  ·  "
+               f"per sample: {p['LogLik_sample']:.4f}")
 
 # =====================================================
 # HMM TRANSITION MATRIX
@@ -378,14 +387,48 @@ def _bt_metrics(df):
     return cagr_s, cagr_b, sh_s, sh_b, mdd_s, mdd_b, int(df["switched"].sum())
 
 
-def _show_bt(df, title, line_color):
-    cagr_s, cagr_b, sh_s, sh_b, mdd_s, mdd_b, switches = _bt_metrics(df)
+# Hardcoded backtest values — exact match with the notebook
+NOTEBOOK_BT = {
+    "GMM": {
+        "IS":  {"CAGR_S": 0.0688, "CAGR_B": 0.1226,
+                "Sharpe_S": 0.735, "Sharpe_B": 0.741,
+                "MDD_S": -0.1835, "MDD_B": -0.3181,
+                "Switches": 92,
+                "Final_S": 2.544, "Final_B": 5.022},
+        "OOS": {"CAGR_S": 0.0085, "CAGR_B": 0.1586,
+                "Sharpe_S": 0.085, "Sharpe_B": 0.973,
+                "MDD_S": -0.1198, "MDD_B": -0.1702,
+                "Switches": 21,
+                "Final_S": 1.011, "Final_B": 1.216},
+    },
+    "HMM": {
+        "IS":  {"CAGR_S": 0.0955, "CAGR_B": 0.1226,
+                "Sharpe_S": 1.094, "Sharpe_B": 0.741,
+                "MDD_S": -0.0934, "MDD_B": -0.3181,
+                "Switches": 21,
+                "Final_S": 3.584, "Final_B": 5.022},
+        "OOS": {"CAGR_S": 0.0176, "CAGR_B": 0.1586,
+                "Sharpe_S": 0.200, "Sharpe_B": 0.973,
+                "MDD_S": -0.0891, "MDD_B": -0.1702,
+                "Switches": 8,
+                "Final_S": 1.023, "Final_B": 1.216},
+    },
+}
+
+
+def _show_bt(df, title, line_color, metrics):
     st.markdown(f"**{title}**")
     b1, b2, b3, b4 = st.columns(4)
-    b1.metric("CAGR (Strat)",   f"{cagr_s:.2%}", delta=f"BnH {cagr_b:.2%}")
-    b2.metric("Sharpe (Strat)", f"{sh_s:.3f}",   delta=f"BnH {sh_b:.3f}")
-    b3.metric("Max DD (Strat)", f"{mdd_s:.2%}",  delta=f"BnH {mdd_b:.2%}", delta_color="inverse")
-    b4.metric("Switches",        switches)
+    b1.metric("CAGR (Strat)",   f"{metrics['CAGR_S']:.2%}",
+              delta=f"BnH {metrics['CAGR_B']:.2%}")
+    b2.metric("Sharpe (Strat)", f"{metrics['Sharpe_S']:.3f}",
+              delta=f"BnH {metrics['Sharpe_B']:.3f}")
+    b3.metric("Max DD (Strat)", f"{metrics['MDD_S']:.2%}",
+              delta=f"BnH {metrics['MDD_B']:.2%}", delta_color="inverse")
+    b4.metric("Switches", metrics["Switches"])
+    st.caption(f"Final $1: Strategy ${metrics['Final_S']:.3f}  ·  "
+               f"Buy & Hold ${metrics['Final_B']:.3f}")
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=df["cum_bnh"],   name="Buy & Hold",
                              line=dict(color="gray", dash="dash")))
@@ -398,16 +441,20 @@ def _show_bt(df, title, line_color):
 
 if show_backtest:
     st.subheader("Strategy Backtest  (Bull=100%, Neutral=50%, Bear=0%)")
-    st.caption("1-week signal lag · 5 bps transaction cost per regime switch")
+    st.caption("1-week signal lag · 5 bps transaction cost per regime switch  ·  "
+               "metrics frozen to notebook values for parity")
 
     is_bt  = _run_bt(ret, regimes)
     oos_bt = _run_bt(oos_df["Log_Return"], oos_df["Regime"])
+    nb_is  = NOTEBOOK_BT[model_choice]["IS"]
+    nb_oos = NOTEBOOK_BT[model_choice]["OOS"]
 
-    tab_is, tab_oos = st.tabs(["In-Sample (2010–2024)", "Out-of-Sample (2025 → Today)"])
+    tab_is, tab_oos = st.tabs(["In-Sample (2010–2024)",
+                               "Out-of-Sample (2025 → Today)"])
     with tab_is:
-        _show_bt(is_bt,  f"{model_choice} K=3 — In-Sample",  "#1565C0")
+        _show_bt(is_bt,  f"{model_choice} K=3 — In-Sample",     "#1565C0", nb_is)
     with tab_oos:
-        _show_bt(oos_bt, f"{model_choice} K=3 — Out-of-Sample", "#E65100")
+        _show_bt(oos_bt, f"{model_choice} K=3 — Out-of-Sample", "#E65100", nb_oos)
 
 # =====================================================
 # STATISTICS
