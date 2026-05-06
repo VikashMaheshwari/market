@@ -353,9 +353,8 @@ if model_choice == "HMM":
 # =====================================================
 # BACKTEST
 # =====================================================
-if show_backtest:
-    st.subheader("Strategy Backtest (Bull=100%, Neutral=50%, Bear=0%)")
-    df = pd.DataFrame({"log_ret": ret, "regime": regimes}).dropna()
+def _run_bt(log_ret, regimes_in):
+    df = pd.DataFrame({"log_ret": log_ret, "regime": regimes_in}).dropna()
     df["signal"]    = df["regime"].shift(1)
     df["alloc"]     = df["signal"].map(ALLOC).fillna(0)
     df["strat_ret"] = df["alloc"] * df["log_ret"]
@@ -363,29 +362,52 @@ if show_backtest:
     df["strat_ret"] -= df["switched"] * COST_BPS
     df["cum_bnh"]   = df["log_ret"].cumsum().apply(np.exp)
     df["cum_strat"] = df["strat_ret"].cumsum().apply(np.exp)
+    return df
 
-    years   = len(df) / 52
-    cagr_s  = df["cum_strat"].iloc[-1] ** (1 / years) - 1
-    cagr_b  = df["cum_bnh"].iloc[-1]   ** (1 / years) - 1
-    sh_s    = (cagr_s / (df["strat_ret"].std() * np.sqrt(52))) if df["strat_ret"].std() > 0 else 0
-    sh_b    = (cagr_b / (df["log_ret"].std()   * np.sqrt(52))) if df["log_ret"].std() > 0 else 0
-    mdd_s   = ((df["cum_strat"] - df["cum_strat"].cummax()) / df["cum_strat"].cummax()).min()
-    mdd_b   = ((df["cum_bnh"]   - df["cum_bnh"].cummax())   / df["cum_bnh"].cummax()).min()
 
+def _bt_metrics(df):
+    years  = len(df) / 52
+    cagr_s = df["cum_strat"].iloc[-1] ** (1 / years) - 1
+    cagr_b = df["cum_bnh"].iloc[-1]   ** (1 / years) - 1
+    vol_s  = df["strat_ret"].std() * np.sqrt(52)
+    vol_b  = df["log_ret"].std()   * np.sqrt(52)
+    sh_s   = cagr_s / vol_s if vol_s > 0 else 0
+    sh_b   = cagr_b / vol_b if vol_b > 0 else 0
+    mdd_s  = ((df["cum_strat"] - df["cum_strat"].cummax()) / df["cum_strat"].cummax()).min()
+    mdd_b  = ((df["cum_bnh"]   - df["cum_bnh"].cummax())   / df["cum_bnh"].cummax()).min()
+    return cagr_s, cagr_b, sh_s, sh_b, mdd_s, mdd_b, int(df["switched"].sum())
+
+
+def _show_bt(df, title, line_color):
+    cagr_s, cagr_b, sh_s, sh_b, mdd_s, mdd_b, switches = _bt_metrics(df)
+    st.markdown(f"**{title}**")
     b1, b2, b3, b4 = st.columns(4)
-    b1.metric("CAGR (Strat)",  f"{cagr_s:.2%}", delta=f"BnH {cagr_b:.2%}")
-    b2.metric("Sharpe (Strat)", f"{sh_s:.3f}",  delta=f"BnH {sh_b:.3f}")
-    b3.metric("Max DD (Strat)", f"{mdd_s:.2%}", delta=f"BnH {mdd_b:.2%}", delta_color="inverse")
-    b4.metric("Switches",       int(df["switched"].sum()))
+    b1.metric("CAGR (Strat)",   f"{cagr_s:.2%}", delta=f"BnH {cagr_b:.2%}")
+    b2.metric("Sharpe (Strat)", f"{sh_s:.3f}",   delta=f"BnH {sh_b:.3f}")
+    b3.metric("Max DD (Strat)", f"{mdd_s:.2%}",  delta=f"BnH {mdd_b:.2%}", delta_color="inverse")
+    b4.metric("Switches",        switches)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df["cum_bnh"],   name="Buy & Hold",
+                             line=dict(color="gray", dash="dash")))
+    fig.add_trace(go.Scatter(x=df.index, y=df["cum_strat"], name="Strategy",
+                             line=dict(color=line_color, width=2)))
+    fig.update_layout(template="plotly_white", height=380,
+                      yaxis_title="Portfolio Value ($1 invested)")
+    st.plotly_chart(fig, use_container_width=True)
 
-    bt = go.Figure()
-    bt.add_trace(go.Scatter(x=df.index, y=df["cum_bnh"],   name="Buy & Hold",
-                            line=dict(color="gray", dash="dash")))
-    bt.add_trace(go.Scatter(x=df.index, y=df["cum_strat"], name="Strategy",
-                            line=dict(color="#1565C0", width=2)))
-    bt.update_layout(template="plotly_white", height=420,
-                     yaxis_title="Portfolio Value ($1 invested)")
-    st.plotly_chart(bt, use_container_width=True)
+
+if show_backtest:
+    st.subheader("Strategy Backtest  (Bull=100%, Neutral=50%, Bear=0%)")
+    st.caption("1-week signal lag · 5 bps transaction cost per regime switch")
+
+    is_bt  = _run_bt(ret, regimes)
+    oos_bt = _run_bt(oos_df["Log_Return"], oos_df["Regime"])
+
+    tab_is, tab_oos = st.tabs(["In-Sample (2010–2024)", "Out-of-Sample (2025 → Today)"])
+    with tab_is:
+        _show_bt(is_bt,  f"{model_choice} K=3 — In-Sample",  "#1565C0")
+    with tab_oos:
+        _show_bt(oos_bt, f"{model_choice} K=3 — Out-of-Sample", "#E65100")
 
 # =====================================================
 # STATISTICS
