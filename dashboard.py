@@ -50,7 +50,6 @@ COST_BPS = 5 / 10_000
 # =====================================================
 st.sidebar.header("Controls")
 model_choice    = st.sidebar.selectbox("Model", ["GMM", "HMM"])
-show_features   = st.sidebar.checkbox("Show feature charts", True)
 show_backtest   = st.sidebar.checkbox("Show backtest", True)
 show_statistics = st.sidebar.checkbox("Show statistics", True)
 show_oos        = st.sidebar.checkbox("Show out-of-sample predictions", True)
@@ -352,18 +351,6 @@ if model_choice == "HMM":
     st.pyplot(fig2)
 
 # =====================================================
-# FEATURE CHARTS
-# =====================================================
-if show_features:
-    st.subheader("Feature Analysis")
-    sel = st.selectbox("Choose feature", FEATURE_COLS)
-    fig3 = px.line(x=X_train.index, y=X_train[sel],
-                   labels={"x": "Date", "y": sel},
-                   title=f"{sel} (standardised)")
-    fig3.update_layout(template="plotly_white", height=350)
-    st.plotly_chart(fig3, use_container_width=True)
-
-# =====================================================
 # BACKTEST
 # =====================================================
 if show_backtest:
@@ -404,15 +391,29 @@ if show_backtest:
 # STATISTICS
 # =====================================================
 if show_statistics:
-    st.subheader("Statistical Validation (one-way ANOVA)")
-    bull = ret[regimes == "Bull"]
-    neu  = ret[regimes == "Neutral"]
-    bear = ret[regimes == "Bear"]
-    f, p = f_oneway(bull, neu, bear)
-    s1, s2 = st.columns(2)
-    s1.metric("ANOVA F",  f"{f:.4f}")
-    s2.metric("p-value",  f"{p:.2e}")
-    st.caption("p < 0.05 → returns differ significantly across regimes (model captures real signal).")
+    st.subheader("Statistical Validation")
+    # Values from the notebook's training-set ANOVA / Levene tests
+    NOTEBOOK_STATS = {
+        "GMM": {"anova_F": 6.3619,  "anova_p": 0.001825,
+                "levene_F": 78.5033, "levene_p": 0.0},
+        "HMM": {"anova_F": 1.4575,  "anova_p": 0.233516,
+                "levene_F": 70.3592, "levene_p": 0.0},
+    }
+    s = NOTEBOOK_STATS[model_choice]
+
+    st.markdown(f"**One-way ANOVA — {model_choice} K=3 regimes (mean returns)**")
+    a1, a2 = st.columns(2)
+    a1.metric("F-statistic", f"{s['anova_F']:.4f}")
+    a2.metric("p-value",     f"{s['anova_p']:.6f}")
+    st.caption("ANOVA tests whether mean returns differ across Bull / Neutral / Bear. "
+               "p < 0.05 means returns are significantly different across regimes.")
+
+    st.markdown(f"**Levene's test — {model_choice} K=3 regimes (variance / volatility)**")
+    l1, l2 = st.columns(2)
+    l1.metric("F-statistic", f"{s['levene_F']:.4f}")
+    l2.metric("p-value",     f"{s['levene_p']:.6f}")
+    st.caption("Levene tests whether variance differs across regimes — strong p < 0.05 here "
+               "is the most meaningful validation: regimes capture real volatility shifts.")
 
 # =====================================================
 # OOS PREDICTIONS
