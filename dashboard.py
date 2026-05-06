@@ -121,22 +121,33 @@ def compute_features(df):
 
 
 class Preprocessor:
-    def __init__(self):
+    """Matches the notebook's class signature so joblib-loaded instances work."""
+    def __init__(self, lower_q=0.01, upper_q=0.99, smooth_window=3):
+        self.lower_q = lower_q
+        self.upper_q = upper_q
+        self.smooth_window = smooth_window
         self.scaler = StandardScaler()
+
     def fit(self, X):
         df = X[FEATURE_COLS].replace([np.inf, -np.inf], np.nan).dropna()
-        self.lower = df.quantile(0.01)
-        self.upper = df.quantile(0.99)
-        clipped = df.clip(self.lower, self.upper, axis=1)
-        smoothed = clipped.rolling(3, min_periods=3).mean().dropna()
+        self.lower_ = df.quantile(self.lower_q)
+        self.upper_ = df.quantile(self.upper_q)
+        self.feature_names_ = list(df.columns)
+        clipped = df.clip(self.lower_, self.upper_, axis=1)
+        smoothed = clipped.rolling(self.smooth_window,
+                                   min_periods=self.smooth_window).mean().dropna()
         self.scaler.fit(smoothed.values)
         return self
+
     def transform(self, X):
-        df = X[FEATURE_COLS].replace([np.inf, -np.inf], np.nan)
-        clipped = df.clip(self.lower, self.upper, axis=1)
-        smoothed = clipped.rolling(3, min_periods=3).mean().dropna()
+        cols = getattr(self, "feature_names_", FEATURE_COLS)
+        df = X[cols].replace([np.inf, -np.inf], np.nan)
+        clipped = df.clip(self.lower_, self.upper_, axis=1)
+        smoothed = clipped.rolling(self.smooth_window,
+                                   min_periods=self.smooth_window).mean().dropna()
         return pd.DataFrame(self.scaler.transform(smoothed.values),
-                            index=smoothed.index, columns=FEATURE_COLS)
+                            index=smoothed.index, columns=cols)
+
     def fit_transform(self, X):
         return self.fit(X).transform(X)
 
